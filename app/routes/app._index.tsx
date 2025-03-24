@@ -112,10 +112,10 @@ export default function Index() {
 
   return (
     <Page>
-      <TitleBar title="Remix app template">
-        <button variant="primary" onClick={generateProduct}>
+      <TitleBar title="Guida all'uso">
+        {/* <button variant="primary" onClick={generateProduct}>
           Generate a product
-        </button>
+        </button> */}
       </TitleBar>
       <BlockStack gap="500">
         <Layout>
@@ -123,52 +123,36 @@ export default function Index() {
             <Card>
               <BlockStack gap="500">
                 <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Congrats on creating a new Shopify app 🎉
+                  <Text as="h1" variant="headingMd">
+                    Descrizione dell'applicazione ✅
                   </Text>
                   <Text variant="bodyMd" as="p">
-                    This embedded app template uses{" "}
-                    <Link
-                      url="https://shopify.dev/docs/apps/tools/app-bridge"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      App Bridge
-                    </Link>{" "}
-                    interface examples like an{" "}
-                    <Link url="/app/additional" removeUnderline>
-                      additional page in the app nav
-                    </Link>
-                    , as well as an{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      Admin GraphQL
-                    </Link>{" "}
-                    mutation demo, to provide a starting point for app
-                    development.
+                  Questa applicazione ti permette di aggiornare facilmente i prodotti nel tuo negozio Shopify utilizzando un file di testo. Ecco come funziona:
+                  <ul>
+                    <li>
+                    <b>Caricamento del File:</b> Puoi caricare un file di testo (.txt) contenente i codici EAN (barcode) dei prodotti che desideri aggiornare. Ogni codice EAN deve essere su una nuova riga.
+                    </li> <br />
+                    <li>
+                    <b>Aggiunta di un Tag: </b>Puoi specificare un tag che verrà aggiunto ai prodotti corrispondenti ai codici EAN nel file. Se il tag è già presente, non verrà duplicato.
+                    </li> <br />
+                    <li>
+                    <b>Impostazione dello Stato:</b> Puoi scegliere lo stato che desideri assegnare ai prodotti aggiornati. Le opzioni disponibili sono "Attivo" , "Bozza" o "Archiviato".
+                    </li> <br />
+                    <li>
+                    <b>Salvataggio e Aggiornamento: </b>Dopo aver caricato il file e impostato il tag e lo stato, clicca su "Salva" per avviare il processo di aggiornamento. L'applicazione elaborerà il file e aggiornerà i prodotti nel tuo negozio Shopify.
+                    </li> <br />
+                    <li>
+                    <b>Feedback:</b>Al termine del processo, riceverai un messaggio di conferma con i dettagli dell'operazione, inclusi il numero di prodotti aggiornati e i dettagli specifici di ciascun aggiornamento.
+                    </li>
+                  </ul>
+                  
                   </Text>
                 </BlockStack>
                 <BlockStack gap="200">
-                  <Text as="h3" variant="headingMd">
-                    Get started with products
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    Generate a product with GraphQL and get the JSON output for
-                    that product. Learn more about the{" "}
-                    <Link
-                      url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-                      target="_blank"
-                      removeUnderline
-                    >
-                      productCreate
-                    </Link>{" "}
-                    mutation in our API references.
-                  </Text>
+
+
                 </BlockStack>
-                <InlineStack gap="300">
+                {/* <InlineStack gap="300">
                   <Button loading={isLoading} onClick={generateProduct}>
                     Generate a product
                   </Button>
@@ -181,7 +165,7 @@ export default function Index() {
                       View product
                     </Button>
                   )}
-                </InlineStack>
+                </InlineStack> */}
                 {fetcher.data?.product && (
                   <>
                     <Text as="h3" variant="headingMd">
@@ -228,9 +212,16 @@ export default function Index() {
           <Layout.Section variant="oneThird">
             <BlockStack gap="500">
               <Card>
-                <BlockStack gap="200">
+              <Button
+                      url={`shopify:admin/apps/rikprova/app/settings`}
+
+                      variant="primary"
+                    >
+                      Vai all'app
+                    </Button>
+                {/* <BlockStack gap="200">
                   <Text as="h2" variant="headingMd">
-                    App template specs
+                    Specifiche tecniche dell'app
                   </Text>
                   <BlockStack gap="200">
                     <InlineStack align="space-between">
@@ -259,7 +250,7 @@ export default function Index() {
                     </InlineStack>
                     <InlineStack align="space-between">
                       <Text as="span" variant="bodyMd">
-                        Interface
+                        Interfaccia
                       </Text>
                       <span>
                         <Link
@@ -292,9 +283,9 @@ export default function Index() {
                       </Link>
                     </InlineStack>
                   </BlockStack>
-                </BlockStack>
+                </BlockStack> */}
               </Card>
-              <Card>
+              {/* <Card>
                 <BlockStack gap="200">
                   <Text as="h2" variant="headingMd">
                     Next steps
@@ -324,7 +315,7 @@ export default function Index() {
                     </List.Item>
                   </List>
                 </BlockStack>
-              </Card>
+              </Card> */}
             </BlockStack>
           </Layout.Section>
         </Layout>
