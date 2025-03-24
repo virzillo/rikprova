@@ -1,0 +1,36 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "32df322483d471ff2d8fdee10c08bdd8"
+application_url = "https://institute-town-perfect-mask.trycloudflare.com"
+embedded = true
+name = "rikprova"
+handle = "rikprova"
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-01"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products,read_products,read_inventory_write_inventory"
+
+[auth]
+redirect_urls = [
+  "https://institute-town-perfect-mask.trycloudflare.com/auth/callback",
+  "https://institute-town-perfect-mask.trycloudflare.com/auth/shopify/callback",
+  "https://institute-town-perfect-mask.trycloudflare.com/api/auth/callback"
+]
+
+[pos]
+embedded = false
