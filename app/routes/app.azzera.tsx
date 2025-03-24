@@ -1,4 +1,4 @@
-import { Form, useActionData, useSubmit } from "@remix-run/react";
+import { useActionData, useSubmit } from "@remix-run/react";
 import {
   Page,
   Card,
@@ -6,9 +6,13 @@ import {
   Button,
   Banner,
   Select,
-  ButtonGroup
+  ButtonGroup,
+  TextContainer,
+  Text,
+  BlockStack,
+  Layout,
 } from "@shopify/polaris";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ActionFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
@@ -19,7 +23,6 @@ export const action: ActionFunction = async ({ request }) => {
   const formData = await request.formData();
   const action = formData.get("action") as string;
 
-  // Funzione di aggiornamento prodotti
   async function updateProductsWithNoInventory() {
     const pageSize = 250;
     let hasNextPage = true;
@@ -139,7 +142,6 @@ export const action: ActionFunction = async ({ request }) => {
     };
   }
 
-  // Gestione delle diverse azioni
   if (action === "scheduleCron") {
     const every = formData.get("every") as string;
     const period = formData.get("period") as string;
@@ -162,11 +164,10 @@ export const action: ActionFunction = async ({ request }) => {
         }, { status: 400 });
     }
 
-    // Schedula il job
     const scheduledJob = cron.schedule(cronExpression, async () => {
       try {
         await updateProductsWithNoInventory();
-        console.log(`Cron job eseguito alle ${new Date().toLocaleString()}`);
+        console.log(`Cron job eseguito con successo alle ${new Date().toLocaleString()}`);
       } catch (error) {
         console.error("Errore nell'esecuzione del cron job:", error);
       }
@@ -178,17 +179,22 @@ export const action: ActionFunction = async ({ request }) => {
     });
   }
 
-  // Esecuzione manuale
   if (action === "runNow") {
     const result = await updateProductsWithNoInventory();
     return json(result);
   }
 
-  // Caso di default
   return json({ 
     success: false, 
     error: "Azione non riconosciuta" 
   }, { status: 400 });
+};
+
+type ScheduledJob = {
+  id: string;
+  every: string;
+  period: string;
+  time: string;
 };
 
 export default function AppAzzera() {
@@ -196,6 +202,21 @@ export default function AppAzzera() {
   const submit = useSubmit();
   const [every, setEvery] = useState("1");
   const [period, setPeriod] = useState("minutes");
+  const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([]);
+  const [executionMessage, setExecutionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const storedJobs = localStorage.getItem("scheduledJobs");
+    if (storedJobs) {
+      setScheduledJobs(JSON.parse(storedJobs));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (actionData?.success) {
+      setExecutionMessage(actionData.message);
+    }
+  }, [actionData]);
 
   const everyOptions = [
     { label: "1", value: "1" },
@@ -224,67 +245,112 @@ export default function AppAzzera() {
     formData.append("period", period);
     formData.append("action", "scheduleCron");
     submit(formData, { method: "post" });
+
+    const newJob = {
+      id: `${every}-${period}-${Date.now()}`,
+      every,
+      period,
+      time: new Date().toLocaleString(),
+    };
+
+    const updatedJobs = [...scheduledJobs, newJob];
+    setScheduledJobs(updatedJobs);
+
+    // Save to local storage
+    localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
+  };
+
+  const handleStopJob = (jobId: string) => {
+    const updatedJobs = scheduledJobs.filter(job => job.id !== jobId);
+    setScheduledJobs(updatedJobs);
+
+    // Update local storage
+    localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
+  };
+
+  const handleClearJobs = () => {
+    localStorage.removeItem("scheduledJobs");
+    setScheduledJobs([]);
   };
 
   return (
-    <Page title="Aggiorna Prodotti">
-      <Card>
-        <FormLayout>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <div style={{ flex: 1 }}>
-              <Select
-                label="Ogni"
-                options={everyOptions}
-                value={every}
-                onChange={(value) => setEvery(value)}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <Select
-                label="Periodo"
-                options={periodOptions}
-                value={period}
-                onChange={(value) => setPeriod(value)}
-              />
-            </div>
-          </div>
+    <Page title="Gestione Prodotti">
+      <Layout>
+        <Layout.Section>
+          <Card >
+            <FormLayout>
+              <BlockStack  >
+                <BlockStack align="space-evenly" >
+                  <Select
+                    label="Ogni"
+                    options={everyOptions}
+                    value={every}
+                    onChange={(value) => setEvery(value)}
+                  />
+                  <Select
+                    label="Periodo"
+                    options={periodOptions}
+                    value={period}
+                    onChange={(value) => setPeriod(value)}
+                  />
+                </BlockStack>
+                <ButtonGroup>
+                  <Button variant="primary" onClick={handleUpdateProducts}>
+                    Aggiorna Prodotti
+                  </Button>
+                  <Button onClick={handleScheduleCron}>
+                    Schedula Job
+                  </Button>
+                  <Button onClick={handleClearJobs}>
+                    Cancella Tutti i Job
+                  </Button>
+                </ButtonGroup>
+              </BlockStack>
+            </FormLayout>
+          </Card>
+        </Layout.Section>
 
-          <ButtonGroup>
-            <Button 
-              variant="primary" 
-              onClick={handleUpdateProducts}
-            >
-              Aggiorna Prodotti
-            </Button>
-            <Button 
-              variant="secondary" 
-              onClick={handleScheduleCron}
-            >
-              Schedula Job
-            </Button>
-          </ButtonGroup>
-        </FormLayout>
-      </Card>
+        <Layout.Section>
+          {actionData?.success && actionData.message && (
+            <Banner title="Aggiornamento Prodotti" tone="success">
+              <p>{actionData.message}</p>
+              {actionData.updatedProductsCount !== undefined && (
+                <p>Prodotti aggiornati in questo momento: {actionData.updatedProductsCount}</p>
+              )}
+            </Banner>
+          )}
+          {actionData?.error && (
+            <Banner title="Errore" tone="critical">
+              <p>{actionData.error}</p>
+            </Banner>
+          )}
+          {executionMessage && (
+            <Banner title="Esecuzione Cron Job" tone="success">
+              <p>{executionMessage}</p>
+            </Banner>
+          )}
+        </Layout.Section>
 
-      {actionData?.success && (
-  <div style={{ marginTop: '20px' }}>
-    <Banner
-      title="Aggiornamento Prodotti"
-    >
-      <p>{actionData.message}</p>
-      <p>Prodotti aggiornati in questo momento: {actionData.updatedProductsCount}</p>
-    </Banner>
-  </div>
-)}
-      {actionData?.error && (
-        <div style={{ marginTop: '20px' }}>
-          <Banner
-            title="Errore"
-          >
-            <p>{actionData.error}</p>
-          </Banner>
-        </div>
-      )}
+        <Layout.Section>
+          {scheduledJobs.length > 0 && (
+            <Card>
+              {scheduledJobs.map((job) => (
+                <Card key={job.id}>
+                  <TextContainer>
+                    <p>
+                      <Text as="strong">Ogni:</Text> {job.every} {job.period}
+                    </p>
+                    <p>
+                      <Text as="strong">Orario di creazione:</Text> {job.time}
+                    </p>
+                    <Button onClick={() => handleStopJob(job.id)}>Stop Job</Button>
+                  </TextContainer>
+                </Card>
+              ))}
+            </Card>
+          )}
+        </Layout.Section>
+      </Layout>
     </Page>
   );
 }

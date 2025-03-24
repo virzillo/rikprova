@@ -1,0 +1,7 @@
+-- CreateTable
+CREATE TABLE "ScheduledJob" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "every" TEXT NOT NULL,
+    "period" TEXT NOT NULL,
+    "time" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

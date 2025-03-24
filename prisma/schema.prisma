@@ -30,3 +30,11 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+
+model ScheduledJob {
+  id     Int      @id @default(autoincrement())
+  every  String
+  period String
+  time   DateTime @default(now())
+}
