@@ -7,16 +7,25 @@ import {
   Banner,
   Select,
   ButtonGroup,
-  TextContainer,
-  Text,
-  BlockStack,
   Layout,
+  DataTable,
+  Toast,
+  Frame,
+  Badge
 } from "@shopify/polaris";
+import { 
+  RefreshIcon, 
+  ClockIcon, 
+  DeleteIcon 
+} from "@shopify/polaris-icons";
 import { useState, useEffect } from "react";
 import type { ActionFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import cron from "node-cron";
+
+// Keep track of active jobs globally
+const activeJobs: { [key: string]: cron.ScheduledTask } = {};
 
 export const action: ActionFunction = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -24,10 +33,11 @@ export const action: ActionFunction = async ({ request }) => {
   const action = formData.get("action") as string;
 
   async function updateProductsWithNoInventory() {
+    console.log("Starting product update...");
     const pageSize = 250;
     let hasNextPage = true;
     let cursor = null;
-    const updatedProducts = [];
+    const updatedProducts: { id: string; status: string }[] = [];
 
     while (hasNextPage) {
       const searchString = cursor 
@@ -135,6 +145,7 @@ export const action: ActionFunction = async ({ request }) => {
       if (!hasNextPage) break;
     }
 
+    console.log("Product update completed.");
     return {
       success: true,
       message: "Prodotti aggiornati con successo!",
@@ -149,13 +160,13 @@ export const action: ActionFunction = async ({ request }) => {
     let cronExpression = "";
     switch (period) {
       case "minutes":
-        cronExpression = `${every} * * * * *`;
+        cronExpression = `*/${every} * * * *`;
         break;
       case "hours":
-        cronExpression = `0 */${every} * * * *`;
+        cronExpression = `0 */${every} * * *`;
         break;
       case "days":
-        cronExpression = `0 0 */${every} * * *`;
+        cronExpression = `0 0 */${every} * *`;
         break;
       default:
         return json({ 
@@ -164,19 +175,48 @@ export const action: ActionFunction = async ({ request }) => {
         }, { status: 400 });
     }
 
+    const jobId = `${every}-${period}-${Date.now()}`;
+
+    console.log(`Scheduling cron job with expression: ${cronExpression}`);
     const scheduledJob = cron.schedule(cronExpression, async () => {
       try {
-        await updateProductsWithNoInventory();
-        console.log(`Cron job eseguito con successo alle ${new Date().toLocaleString()}`);
+        console.log(`Executing cron job at ${new Date().toLocaleString()}`);
+        const result = await updateProductsWithNoInventory();
+        console.log(`Cron job executed successfully at ${new Date().toLocaleString()}`);
+        console.log(`Updated ${result.updatedProductsCount} products`);
       } catch (error) {
         console.error("Errore nell'esecuzione del cron job:", error);
       }
     });
 
+    // Store the job in the global activeJobs object
+    activeJobs[jobId] = scheduledJob;
+
     return json({ 
       success: true, 
-      message: `Job schedulato: ogni ${every} ${period}` 
+      message: `Job schedulato: ogni ${every} ${period}`,
+      jobId: jobId,
+      updatedProductsCount: 0 // Default value
     });
+  }
+
+  if (action === "stopJob") {
+    const jobId = formData.get("jobId") as string;
+    
+    if (activeJobs[jobId]) {
+      activeJobs[jobId].stop();
+      delete activeJobs[jobId];
+      
+      return json({ 
+        success: true, 
+        message: `Job ${jobId} fermato con successo` 
+      });
+    }
+
+    return json({ 
+      success: false, 
+      error: "Job non trovato" 
+    }, { status: 404 });
   }
 
   if (action === "runNow") {
@@ -197,24 +237,69 @@ type ScheduledJob = {
   time: string;
 };
 
+type JobHistoryEntry = {
+  id: string;
+  action: string;
+  timestamp: string;
+  status: 'success' | 'error';
+  details?: string;
+  updatedProductsCount?: number;
+};
+
 export default function AppAzzera() {
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
-  const [every, setEvery] = useState("1");
-  const [period, setPeriod] = useState("minutes");
+  const [every, setEvery] = useState<string>("1");
+  const [period, setPeriod] = useState<string>("minutes");
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[]>([]);
-  const [executionMessage, setExecutionMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [jobHistory, setJobHistory] = useState<JobHistoryEntry[]>([]);
+  const [isJobHistoryExpanded, setIsJobHistoryExpanded] = useState(false);
 
   useEffect(() => {
     const storedJobs = localStorage.getItem("scheduledJobs");
     if (storedJobs) {
       setScheduledJobs(JSON.parse(storedJobs));
     }
+
+    const storedHistory = localStorage.getItem('jobHistory');
+    if (storedHistory) {
+      setJobHistory(JSON.parse(storedHistory));
+    }
   }, []);
 
   useEffect(() => {
     if (actionData?.success) {
-      setExecutionMessage(actionData.message);
+      setToastMessage(actionData.message);
+      
+      // Create a job history entry
+      const newHistoryEntry: JobHistoryEntry = {
+        id: Date.now().toString(),
+        action: actionData.jobId ? 'Schedule Job' : 'Update Products',
+        timestamp: new Date().toLocaleString(),
+        status: 'success',
+        details: actionData.message,
+        updatedProductsCount: actionData.updatedProductsCount || 0
+      };
+
+      // Update job history
+      const updatedHistory = [newHistoryEntry, ...jobHistory].slice(0, 10); // Keep last 10 entries
+      setJobHistory(updatedHistory);
+      localStorage.setItem('jobHistory', JSON.stringify(updatedHistory));
+      
+      // If a new job was scheduled, update the jobs list
+      if (actionData.jobId) {
+        const newJob: ScheduledJob = {
+          id: actionData.jobId,
+          every: every,
+          period: period,
+          time: new Date().toLocaleString(),
+        };
+
+        const updatedJobs = [...scheduledJobs, newJob];
+        setScheduledJobs(updatedJobs);
+        localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
+      }
     }
   }, [actionData]);
 
@@ -228,9 +313,9 @@ export default function AppAzzera() {
   ];
 
   const periodOptions = [
-    { label: "Minuti", value: "minutes" },
-    { label: "Ore", value: "hours" },
-    { label: "Giorni", value: "days" }
+    { label: "Minutes", value: "minutes" },
+    { label: "Hours", value: "hours" },
+    { label: "Days", value: "days" }
   ];
 
   const handleUpdateProducts = () => {
@@ -240,31 +325,30 @@ export default function AppAzzera() {
   };
 
   const handleScheduleCron = () => {
+    let adjustedEvery = every;
+    let adjustedPeriod = period;
+
+    if (every === "60" && period === "minutes") {
+      adjustedEvery = "1";
+      adjustedPeriod = "hours";
+    }
+
     const formData = new FormData();
-    formData.append("every", every);
-    formData.append("period", period);
+    formData.append("every", adjustedEvery);
+    formData.append("period", adjustedPeriod);
     formData.append("action", "scheduleCron");
     submit(formData, { method: "post" });
-
-    const newJob = {
-      id: `${every}-${period}-${Date.now()}`,
-      every,
-      period,
-      time: new Date().toLocaleString(),
-    };
-
-    const updatedJobs = [...scheduledJobs, newJob];
-    setScheduledJobs(updatedJobs);
-
-    // Save to local storage
-    localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
   };
 
   const handleStopJob = (jobId: string) => {
+    const formData = new FormData();
+    formData.append("jobId", jobId);
+    formData.append("action", "stopJob");
+    submit(formData, { method: "post" });
+
+    // Remove the job from local state and storage
     const updatedJobs = scheduledJobs.filter(job => job.id !== jobId);
     setScheduledJobs(updatedJobs);
-
-    // Update local storage
     localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
   };
 
@@ -273,84 +357,179 @@ export default function AppAzzera() {
     setScheduledJobs([]);
   };
 
+  const isJobLimitReached = scheduledJobs.length >= 3;
+
   return (
-    <Page title="Gestione Prodotti">
-      <Layout>
-        <Layout.Section>
-          <Card >
-            <FormLayout>
-              <BlockStack  >
-                <BlockStack align="space-evenly" >
+    <Frame>
+      <Page 
+        title="Product Management" 
+        subtitle="Automate product status updates based on inventory"
+      >
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '20px', 
+                padding: '20px' 
+              }}>
+                <div style={{ flex: 1 }}>
                   <Select
-                    label="Ogni"
+                    label="Frequency"
+                    helpText="How often should the job run?"
                     options={everyOptions}
                     value={every}
                     onChange={(value) => setEvery(value)}
                   />
+                </div>
+                <div style={{ flex: 1 }}>
                   <Select
-                    label="Periodo"
+                    label="Period"
+                    helpText="Select the time unit for job scheduling"
                     options={periodOptions}
                     value={period}
                     onChange={(value) => setPeriod(value)}
                   />
-                </BlockStack>
-                <ButtonGroup>
-                  <Button variant="primary" onClick={handleUpdateProducts}>
-                    Aggiorna Prodotti
+                </div>
+              </div>
+              
+              <Card>
+                <ButtonGroup fullWidth>
+                  <Button 
+                    variant="primary" 
+                    onClick={handleUpdateProducts}
+                    icon={RefreshIcon}
+                  >
+                    Update Products Now
                   </Button>
-                  <Button onClick={handleScheduleCron}>
-                    Schedula Job
+                  <Button 
+                    onClick={handleScheduleCron} 
+                    disabled={isJobLimitReached}
+                    icon={ClockIcon}
+                  >
+                    Schedule Automated Job
                   </Button>
-                  <Button onClick={handleClearJobs}>
-                    Cancella Tutti i Job
+                  <Button 
+                    variant="primary"
+                    tone="critical"
+                    onClick={handleClearJobs}
+                    icon={DeleteIcon}
+                  >
+                    Clear All Jobs
                   </Button>
                 </ButtonGroup>
-              </BlockStack>
-            </FormLayout>
-          </Card>
-        </Layout.Section>
-
-        <Layout.Section>
-          {actionData?.success && actionData.message && (
-            <Banner title="Aggiornamento Prodotti" tone="success">
-              <p>{actionData.message}</p>
-              {actionData.updatedProductsCount !== undefined && (
-                <p>Prodotti aggiornati in questo momento: {actionData.updatedProductsCount}</p>
-              )}
-            </Banner>
-          )}
-          {actionData?.error && (
-            <Banner title="Errore" tone="critical">
-              <p>{actionData.error}</p>
-            </Banner>
-          )}
-          {executionMessage && (
-            <Banner title="Esecuzione Cron Job" tone="success">
-              <p>{executionMessage}</p>
-            </Banner>
-          )}
-        </Layout.Section>
-
-        <Layout.Section>
-          {scheduledJobs.length > 0 && (
-            <Card>
-              {scheduledJobs.map((job) => (
-                <Card key={job.id}>
-                  <TextContainer>
-                    <p>
-                      <Text as="strong">Ogni:</Text> {job.every} {job.period}
-                    </p>
-                    <p>
-                      <Text as="strong">Orario di creazione:</Text> {job.time}
-                    </p>
-                    <Button onClick={() => handleStopJob(job.id)}>Stop Job</Button>
-                  </TextContainer>
-                </Card>
-              ))}
+              </Card>
             </Card>
+          </Layout.Section>
+
+          {scheduledJobs.length > 0 && (
+            <Layout.Section>
+              <Card>
+                <div style={{ textAlign: 'right', padding: '10px' }}>
+                  <Button
+                    variant="primary"
+                    tone="critical"
+                    onClick={handleClearJobs}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+                <DataTable
+                  columnContentTypes={[
+                    'text',
+                    'text',
+                    'text',
+                    'text',
+                    'text',
+                  ]}
+                  headings={[
+                    'Job ID',
+                    'Frequency',
+                    'Period',
+                    'Created At',
+                    'Actions',
+                  ]}
+                  rows={scheduledJobs.map((job) => [
+                    job.id.slice(-6),  // Show only last 6 characters
+                    job.every,
+                    job.period,
+                    job.time,
+                    <Button 
+                      size="slim" 
+                      tone="critical" 
+                      onClick={() => handleStopJob(job.id)}
+                    >
+                      Stop
+                    </Button>,
+                  ])}
+                />
+              </Card>
+            </Layout.Section>
           )}
-        </Layout.Section>
-      </Layout>
-    </Page>
+
+          {jobHistory.length > 0 && (
+            <Layout.Section>
+              <Card>
+                {jobHistory.length > 0 && (
+                  <div style={{ textAlign: 'right', padding: '10px' }}>
+                    <Button
+                      onClick={() => setIsJobHistoryExpanded(!isJobHistoryExpanded)}
+                    >
+                      {isJobHistoryExpanded ? 'Hide History' : 'View History'}
+                    </Button>
+                  </div>
+                )}
+                {isJobHistoryExpanded && (
+                  <DataTable
+                    columnContentTypes={[
+                      'text',
+                      'text',
+                      'text',
+                      'text',
+                    ]}
+                    headings={[
+                      'Action',
+                      'Timestamp',
+                      'Status',
+                      'Details',
+                    ]}
+                    rows={jobHistory.map((entry) => [
+                      entry.action,
+                      entry.timestamp,
+                      <Badge 
+                        tone={entry.status === 'success' ? 'success' : 'critical'}
+                      >
+                        {entry.status}
+                      </Badge>,
+                      entry.details || '-',
+                    ])}
+                  />
+                )}
+              </Card>
+            </Layout.Section>
+          )}
+
+          {isJobLimitReached && (
+            <Layout.Section>
+              <Banner 
+                title="Job Limit Reached" 
+                tone="warning"
+              >
+                <p>You can only have up to 3 scheduled jobs at a time. Stop an existing job to schedule a new one.</p>
+              </Banner>
+            </Layout.Section>
+          )}
+        </Layout>
+      </Page>
+
+      {toastMessage && (
+        <Toast
+          content={toastMessage}
+          onDismiss={() => setToastMessage(null)}
+          duration={3000}
+        />
+      )}
+    </Frame>
   );
 }
