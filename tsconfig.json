@@ -1,5 +1,5 @@
 {
-  "include": ["env.d.ts", "**/*.ts", "**/*.tsx"],
+  "include": ["env.d.ts", "**/*.ts", "**/*.tsx", "app/shopify.server.ts", "app/routes/app.compara.server.tsx"],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "strict": true,
@@ -16,6 +16,9 @@
     "moduleResolution": "Bundler",
     "target": "ES2022",
     "baseUrl": ".",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "~/*": ["./app/*"]
+    }
   }
 }

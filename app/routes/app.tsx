@@ -26,6 +26,7 @@ export default function App() {
         </Link>
         <Link to="/app/settings">Fuori Produzione</Link>
         <Link to="/app/azzera">Azzera</Link>
+        <Link to="/app/compara">Compara</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

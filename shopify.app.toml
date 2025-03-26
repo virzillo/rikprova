@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "32df322483d471ff2d8fdee10c08bdd8"
-application_url = "https://cemetery-spray-pond-black.trycloudflare.com"
+application_url = "https://reflects-wed-centered-interior.trycloudflare.com"
 embedded = true
 name = "rikprova"
 handle = "rikprova"
@@ -23,13 +23,13 @@ api_version = "2025-01"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,read_inventory,write_inventory"
+scopes = "write_products,read_products,read_inventory,write_inventory,read_metaobjects, write_metaobjects"
 
 [auth]
 redirect_urls = [
-  "https://cemetery-spray-pond-black.trycloudflare.com/auth/callback",
-  "https://cemetery-spray-pond-black.trycloudflare.com/auth/shopify/callback",
-  "https://cemetery-spray-pond-black.trycloudflare.com/api/auth/callback"
+  "https://reflects-wed-centered-interior.trycloudflare.com/auth/callback",
+  "https://reflects-wed-centered-interior.trycloudflare.com/auth/shopify/callback",
+  "https://reflects-wed-centered-interior.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]

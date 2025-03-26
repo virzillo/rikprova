@@ -37,7 +37,8 @@
     "prisma": "^6.2.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "vite-tsconfig-paths": "^5.0.1"
+    "vite-tsconfig-paths": "^5.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@remix-run/eslint-config": "^2.16.1",
@@ -47,6 +48,7 @@
     "@types/node": "^22.2.0",
     "@types/react": "^18.2.31",
     "@types/react-dom": "^18.2.14",
+    "@types/xlsx": "^0.0.35",
     "eslint": "^8.42.0",
     "eslint-config-prettier": "^10.0.1",
     "prettier": "^3.2.4",
