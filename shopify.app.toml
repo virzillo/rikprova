@@ -3,7 +3,11 @@
 client_id = "32df322483d471ff2d8fdee10c08bdd8"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 application_url = "https://pioneer-buyer-turbo-luther.trycloudflare.com"
+=======
+application_url = "https://psp-module-mean-floppy.trycloudflare.com"
+>>>>>>> parent of adce05d (Cron job updated)
 =======
 application_url = "https://psp-module-mean-floppy.trycloudflare.com"
 >>>>>>> parent of adce05d (Cron job updated)
@@ -37,9 +41,15 @@ scopes = "write_products,read_products,read_inventory,write_inventory,read_metao
 redirect_urls = [
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   "https://pioneer-buyer-turbo-luther.trycloudflare.com/auth/callback",
   "https://pioneer-buyer-turbo-luther.trycloudflare.com/auth/shopify/callback",
   "https://pioneer-buyer-turbo-luther.trycloudflare.com/api/auth/callback"
+=======
+  "https://psp-module-mean-floppy.trycloudflare.com/auth/callback",
+  "https://psp-module-mean-floppy.trycloudflare.com/auth/shopify/callback",
+  "https://psp-module-mean-floppy.trycloudflare.com/api/auth/callback"
+>>>>>>> parent of adce05d (Cron job updated)
 =======
   "https://psp-module-mean-floppy.trycloudflare.com/auth/callback",
   "https://psp-module-mean-floppy.trycloudflare.com/auth/shopify/callback",
