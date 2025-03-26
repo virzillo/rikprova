@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -9,144 +9,317 @@ import {
   Button,
   BlockStack,
   Box,
+  List,
+  Link,
   InlineStack,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import { json } from "@remix-run/node";
-
-type JobHistoryEntry = {
-  id: string;
-  action: string;
-  timestamp: string;
-  status: 'success' | 'error';
-  details?: string;
-  updatedProductsCount?: number;
-};
-
-type ScheduledJob = {
-  id: string;
-  every: string;
-  period: string;
-  time: string;
-};
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
-  return json({});
+
+  return null;
+};
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin } = await authenticate.admin(request);
+  const color = ["Red", "Orange", "Yellow", "Green"][
+    Math.floor(Math.random() * 4)
+  ];
+  const response = await admin.graphql(
+    `#graphql
+      mutation populateProduct($product: ProductCreateInput!) {
+        productCreate(product: $product) {
+          product {
+            id
+            title
+            handle
+            status
+            variants(first: 10) {
+              edges {
+                node {
+                  id
+                  price
+                  barcode
+                  createdAt
+                }
+              }
+            }
+          }
+        }
+      }`,
+    {
+      variables: {
+        product: {
+          title: `${color} Snowboard`,
+        },
+      },
+    },
+  );
+  const responseJson = await response.json();
+
+  const product = responseJson.data!.productCreate!.product!;
+  const variantId = product.variants.edges[0]!.node!.id!;
+
+  const variantResponse = await admin.graphql(
+    `#graphql
+    mutation shopifyRemixTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        productVariants {
+          id
+          price
+          barcode
+          createdAt
+        }
+      }
+    }`,
+    {
+      variables: {
+        productId: product.id,
+        variants: [{ id: variantId, price: "100.00" }],
+      },
+    },
+  );
+
+  const variantResponseJson = await variantResponse.json();
+
+  return {
+    product: responseJson!.data!.productCreate!.product,
+    variant:
+      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+  };
 };
 
 export default function Index() {
-  const [stats, setStats] = useState({
-    active: 0,
-    updatedProducts: 0,
-  });
+  const fetcher = useFetcher<typeof action>();
+
+  const shopify = useAppBridge();
+  const isLoading =
+    ["loading", "submitting"].includes(fetcher.state) &&
+    fetcher.formMethod === "POST";
+  const productId = fetcher.data?.product?.id.replace(
+    "gid://shopify/Product/",
+    "",
+  );
 
   useEffect(() => {
-    // Retrieve job history from local storage
-    const storedHistory = localStorage.getItem('jobHistory');
-    let parsedHistory: JobHistoryEntry[] = [];
-
-    if (storedHistory) {
-      try {
-        parsedHistory = JSON.parse(storedHistory);
-      } catch (error) {
-        console.error("Error parsing job history", error);
-      }
+    if (productId) {
+      shopify.toast.show("Product created");
     }
-
-    // Retrieve scheduled jobs from local storage
-    const storedScheduledJobs = localStorage.getItem('scheduledJobs');
-    let parsedScheduledJobs: ScheduledJob[] = [];
-
-    if (storedScheduledJobs) {
-      try {
-        parsedScheduledJobs = JSON.parse(storedScheduledJobs);
-      } catch (error) {
-        console.error("Error parsing scheduled jobs", error);
-      }
-    }
-
-    // Calculate statistics
-    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentHistory = parsedHistory.filter((entry: JobHistoryEntry) => 
-      new Date(entry.timestamp) > last24Hours
-    );
-
-    // Sum up total updated products from successful jobs in the last 24 hours
-    const totalUpdatedProducts = recentHistory.reduce((total, job) => {
-      return total + (job.updatedProductsCount || 0);
-    }, 0);
-
-    setStats({
-      // Active tasks are currently scheduled jobs
-      active: parsedScheduledJobs.length,
-      // Total products updated in successful jobs in the last 24 hours
-      updatedProducts: totalUpdatedProducts
-    });
-  }, []);
+  }, [productId, shopify]);
+  const generateProduct = () => fetcher.submit({}, { method: "POST" });
 
   return (
     <Page>
-      <TitleBar title="QuickEdit: Bulk Edit" />
-      <Layout>
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                Date range: Last 24 hours
-              </Text>
-              <InlineStack gap="400">
-                <Box>
-                  <Text as="span" variant="bodyMd" tone="subdued">Active tasks</Text>
-                  <Text as="h1" variant="headingXl">{stats.active}</Text>
-                </Box>
-                <Box>
-                  <Text as="span" variant="bodyMd" tone="success">Updated Products</Text>
-                  <Text as="h1" variant="headingXl" tone="success">{stats.updatedProducts}</Text>
-                </Box>
-              </InlineStack>
-            </BlockStack>
-          </Card>
-        </Layout.Section>
+      <TitleBar title="Guida all'uso">
+        {/* <button variant="primary" onClick={generateProduct}>
+          Generate a product
+        </button> */}
+      </TitleBar>
+      <BlockStack gap="500">
+        <Layout>
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="500">
+                <BlockStack gap="200">
+                  <Text as="h1" variant="headingMd">
+                    Descrizione dell'applicazione ✅
+                  </Text>
+                  <Text variant="bodyMd" as="p">
+                  Questa applicazione ti permette di aggiornare facilmente i prodotti nel tuo negozio Shopify utilizzando un file di testo. Ecco come funziona:
+                  <ul>
+                    <li>
+                    <b>Caricamento del File:</b> Puoi caricare un file di testo (.txt) contenente i codici EAN (barcode) dei prodotti che desideri aggiornare. Ogni codice EAN deve essere su una nuova riga.
+                    </li> <br />
+                    <li>
+                    <b>Aggiunta di un Tag: </b>Puoi specificare un tag che verrà aggiunto ai prodotti corrispondenti ai codici EAN nel file. Se il tag è già presente, non verrà duplicato.
+                    </li> <br />
+                    <li>
+                    <b>Impostazione dello Stato:</b> Puoi scegliere lo stato che desideri assegnare ai prodotti aggiornati. Le opzioni disponibili sono "Attivo" , "Bozza" o "Archiviato".
+                    </li> <br />
+                    <li>
+                    <b>Salvataggio e Aggiornamento: </b>Dopo aver caricato il file e impostato il tag e lo stato, clicca su "Salva" per avviare il processo di aggiornamento. L'applicazione elaborerà il file e aggiornerà i prodotti nel tuo negozio Shopify.
+                    </li> <br />
+                    <li>
+                    <b>Feedback:</b>Al termine del processo, riceverai un messaggio di conferma con i dettagli dell'operazione, inclusi il numero di prodotti aggiornati e i dettagli specifici di ciascun aggiornamento.
+                    </li>
+                  </ul>
+                  
+                  </Text>
+                </BlockStack>
+                <BlockStack gap="200">
 
-        <Layout.Section>
-          <Card>
-            <BlockStack align="center" gap="400">
-              <Box>
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  width="100" 
-                  height="100" 
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                  <line x1="12" y1="13" x2="12" y2="17"/>
-                  <line x1="10" y1="15" x2="14" y2="15"/>
-                </svg>
-              </Box>
-              <BlockStack gap="200" align="center">
-                <Text as="h2" variant="headingMd">
-                  Create a new bulk edit task
-                </Text>
-                <Text as="span" variant="bodyMd" tone="subdued">
-                  Create a new bulk edit task to edit your products, variants, or collections.
-                </Text>
+
+                </BlockStack>
+                {/* <InlineStack gap="300">
+                  <Button loading={isLoading} onClick={generateProduct}>
+                    Generate a product
+                  </Button>
+                  {fetcher.data?.product && (
+                    <Button
+                      url={`shopify:admin/products/${productId}`}
+                      target="_blank"
+                      variant="plain"
+                    >
+                      View product
+                    </Button>
+                  )}
+                </InlineStack> */}
+                {fetcher.data?.product && (
+                  <>
+                    <Text as="h3" variant="headingMd">
+                      {" "}
+                      productCreate mutation
+                    </Text>
+                    <Box
+                      padding="400"
+                      background="bg-surface-active"
+                      borderWidth="025"
+                      borderRadius="200"
+                      borderColor="border"
+                      overflowX="scroll"
+                    >
+                      <pre style={{ margin: 0 }}>
+                        <code>
+                          {JSON.stringify(fetcher.data.product, null, 2)}
+                        </code>
+                      </pre>
+                    </Box>
+                    <Text as="h3" variant="headingMd">
+                      {" "}
+                      productVariantsBulkUpdate mutation
+                    </Text>
+                    <Box
+                      padding="400"
+                      background="bg-surface-active"
+                      borderWidth="025"
+                      borderRadius="200"
+                      borderColor="border"
+                      overflowX="scroll"
+                    >
+                      <pre style={{ margin: 0 }}>
+                        <code>
+                          {JSON.stringify(fetcher.data.variant, null, 2)}
+                        </code>
+                      </pre>
+                    </Box>
+                  </>
+                )}
               </BlockStack>
-              <InlineStack gap="200">
-                <Button variant="primary">Create bulk edit</Button>
-                <Button>View tasks</Button>
-              </InlineStack>
+            </Card>
+          </Layout.Section>
+          <Layout.Section variant="oneThird">
+            <BlockStack gap="500">
+              <Card>
+              <Button
+                      url={`shopify:admin/apps/rikprova/app/settings`}
+
+                      variant="primary"
+                    >
+                      Vai all'app
+                    </Button>
+                {/* <BlockStack gap="200">
+                  <Text as="h2" variant="headingMd">
+                    Specifiche tecniche dell'app
+                  </Text>
+                  <BlockStack gap="200">
+                    <InlineStack align="space-between">
+                      <Text as="span" variant="bodyMd">
+                        Framework
+                      </Text>
+                      <Link
+                        url="https://remix.run"
+                        target="_blank"
+                        removeUnderline
+                      >
+                        Remix
+                      </Link>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="span" variant="bodyMd">
+                        Database
+                      </Text>
+                      <Link
+                        url="https://www.prisma.io/"
+                        target="_blank"
+                        removeUnderline
+                      >
+                        Prisma
+                      </Link>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="span" variant="bodyMd">
+                        Interfaccia
+                      </Text>
+                      <span>
+                        <Link
+                          url="https://polaris.shopify.com"
+                          target="_blank"
+                          removeUnderline
+                        >
+                          Polaris
+                        </Link>
+                        {", "}
+                        <Link
+                          url="https://shopify.dev/docs/apps/tools/app-bridge"
+                          target="_blank"
+                          removeUnderline
+                        >
+                          App Bridge
+                        </Link>
+                      </span>
+                    </InlineStack>
+                    <InlineStack align="space-between">
+                      <Text as="span" variant="bodyMd">
+                        API
+                      </Text>
+                      <Link
+                        url="https://shopify.dev/docs/api/admin-graphql"
+                        target="_blank"
+                        removeUnderline
+                      >
+                        GraphQL API
+                      </Link>
+                    </InlineStack>
+                  </BlockStack>
+                </BlockStack> */}
+              </Card>
+              {/* <Card>
+                <BlockStack gap="200">
+                  <Text as="h2" variant="headingMd">
+                    Next steps
+                  </Text>
+                  <List>
+                    <List.Item>
+                      Build an{" "}
+                      <Link
+                        url="https://shopify.dev/docs/apps/getting-started/build-app-example"
+                        target="_blank"
+                        removeUnderline
+                      >
+                        {" "}
+                        example app
+                      </Link>{" "}
+                      to get started
+                    </List.Item>
+                    <List.Item>
+                      Explore Shopify’s API with{" "}
+                      <Link
+                        url="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
+                        target="_blank"
+                        removeUnderline
+                      >
+                        GraphiQL
+                      </Link>
+                    </List.Item>
+                  </List>
+                </BlockStack>
+              </Card> */}
             </BlockStack>
-          </Card>
-        </Layout.Section>
-      </Layout>
+          </Layout.Section>
+        </Layout>
+      </BlockStack>
     </Page>
   );
 }

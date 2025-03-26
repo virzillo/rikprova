@@ -1,7 +1,11 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "32df322483d471ff2d8fdee10c08bdd8"
+<<<<<<< HEAD
 application_url = "https://pioneer-buyer-turbo-luther.trycloudflare.com"
+=======
+application_url = "https://psp-module-mean-floppy.trycloudflare.com"
+>>>>>>> parent of adce05d (Cron job updated)
 embedded = true
 name = "rikprova"
 handle = "rikprova"
@@ -27,9 +31,15 @@ scopes = "write_products,read_products,read_inventory,write_inventory,read_metao
 
 [auth]
 redirect_urls = [
+<<<<<<< HEAD
   "https://pioneer-buyer-turbo-luther.trycloudflare.com/auth/callback",
   "https://pioneer-buyer-turbo-luther.trycloudflare.com/auth/shopify/callback",
   "https://pioneer-buyer-turbo-luther.trycloudflare.com/api/auth/callback"
+=======
+  "https://psp-module-mean-floppy.trycloudflare.com/auth/callback",
+  "https://psp-module-mean-floppy.trycloudflare.com/auth/shopify/callback",
+  "https://psp-module-mean-floppy.trycloudflare.com/api/auth/callback"
+>>>>>>> parent of adce05d (Cron job updated)
 ]
 
 [pos]
