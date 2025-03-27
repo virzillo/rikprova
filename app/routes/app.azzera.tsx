@@ -2,30 +2,36 @@ import { useActionData, useSubmit } from "@remix-run/react";
 import {
   Page,
   Card,
-  FormLayout,
   Button,
-  Banner,
-  Select,
-  ButtonGroup,
   Layout,
   DataTable,
   Toast,
   Frame,
-  Badge
+  Badge,
+  Text,
+  ProgressBar,
+  Banner,
+  Select,
 } from "@shopify/polaris";
-import { 
-  RefreshIcon, 
-  ClockIcon, 
-  DeleteIcon 
+import {
+  RefreshIcon,
+  ClockIcon,
+  DeleteIcon,
 } from "@shopify/polaris-icons";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ActionFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import cron from "node-cron";
 
-// Keep track of active jobs globally
-const activeJobs: { [key: string]: cron.ScheduledTask } = {};
+// Enhanced job tracking with more metadata
+const activeJobs: {
+  [key: string]: {
+    task: cron.ScheduledTask;
+    createdAt: Date;
+    totalRatePointsUsed: number;
+  };
+} = {};
 
 export const action: ActionFunction = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -34,14 +40,17 @@ export const action: ActionFunction = async ({ request }) => {
 
   async function updateProductsWithNoInventory() {
     console.log("Starting product update...");
-    const pageSize = 250;
+    const pageSize = 249;
     let hasNextPage = true;
     let cursor = null;
     const updatedProducts: { id: string; status: string }[] = [];
+    let totalRatePointsUsed = 0;
+    let totalProcessed = 0;
+    let totalProducts = 0;
 
     while (hasNextPage) {
-      const searchString = cursor 
-        ? `first: ${pageSize}, after: "${cursor}"` 
+      const searchString: string = cursor
+        ? `first: ${pageSize}, after: "${cursor}"`
         : `first: ${pageSize}`;
 
       const response = await admin.graphql(`
@@ -54,7 +63,7 @@ export const action: ActionFunction = async ({ request }) => {
             edges {
               node {
                 id
-                variants(first: 100) {
+                variants(first: 10) {
                   edges {
                     node {
                       inventoryQuantity
@@ -68,40 +77,46 @@ export const action: ActionFunction = async ({ request }) => {
         }
       `);
 
-      type GraphQLResponse = {
-        data: {
-          products: {
-            pageInfo: {
-              endCursor: string;
-              hasNextPage: boolean;
-            };
-            edges: {
-              node: {
-                id: string;
-                variants: {
-                  edges: {
-                    node: {
-                      inventoryQuantity: number;
-                    };
-                  }[];
-                };
-                status: string;
-              };
-            }[];
-          };
-        };
-      };
+      const responseData = await response.json();
 
-      const responseData = (await response.json()) as GraphQLResponse;
-      const products = responseData.data.products.edges.map((edge: any) => edge.node);
+      // Log rate limit information
+      const rateLimit = responseData.extensions?.cost?.throttleStatus;
+      if (rateLimit) {
+        console.log("Rate Limit Information for Products Query:");
+        console.log(`Currently Available: ${rateLimit.currentlyAvailable}`);
+        console.log(`Maximum Available: ${rateLimit.maximumAvailable}`);
+        console.log(
+          "Full Extensions Object:",
+          JSON.stringify(responseData.extensions, null, 2)
+        );
 
-      for (const product of products) {
-        try {
-          const variants = product.variants.edges.map((edge: any) => edge.node);
-          const allVariantsOutOfStock = variants.every((variant: any) => variant.inventoryQuantity === 0);
+        const requestedQueryPoints =
+          rateLimit.maximumAvailable - rateLimit.currentlyAvailable;
+        console.log(`Calculated Requested Query Points: ${requestedQueryPoints}`);
 
-          if (allVariantsOutOfStock && product.status !== 'DRAFT') {
-            const updateResponse = await admin.graphql(`
+        totalRatePointsUsed += requestedQueryPoints;
+      }
+
+      const products = responseData.data.products.edges.map((edge: any) => ({
+        id: edge.node.id,
+        variants: edge.node.variants.edges.map(
+          (variantEdge: any) => variantEdge.node
+        ),
+        status: edge.node.status,
+      }));
+
+      totalProducts += products.length;
+
+      for (let i = 0; i < products.length; i++) {
+        const product = products[i];
+        const allVariantsOutOfStock = product.variants.every(
+          (variant: any) => variant.inventoryQuantity === 0
+        );
+
+        if (allVariantsOutOfStock && product.status !== "DRAFT") {
+          try {
+            const updateResponse = await admin.graphql(
+              `
               mutation productUpdate($input: ProductInput!) {
                 productUpdate(input: $input) {
                   product {
@@ -114,49 +129,86 @@ export const action: ActionFunction = async ({ request }) => {
                   }
                 }
               }
-            `, {
-              variables: {
-                input: {
-                  id: product.id,
-                  status: 'DRAFT',
+            `,
+              {
+                variables: {
+                  input: {
+                    id: product.id,
+                    status: "DRAFT",
+                  },
                 },
-              },
-            });
+              }
+            );
 
             const updateResult = await updateResponse.json();
-            
+
+            // Log rate limit information for mutation
+            const updateRateLimit = updateResult.extensions?.cost?.throttleStatus;
+            if (updateRateLimit) {
+              console.log("Mutation Rate Limit Information:");
+              console.log(
+                `Currently Available: ${updateRateLimit.currentlyAvailable}`
+              );
+              console.log(
+                `Maximum Available: ${updateRateLimit.maximumAvailable}`
+              );
+              console.log(
+                "Full Mutation Extensions:",
+                JSON.stringify(updateResult.extensions, null, 2)
+              );
+
+              const mutationRequestedPoints =
+                updateRateLimit.maximumAvailable -
+                updateRateLimit.currentlyAvailable;
+              console.log(
+                `Calculated Mutation Requested Points: ${mutationRequestedPoints}`
+              );
+
+              totalRatePointsUsed += mutationRequestedPoints;
+            }
+
             if (updateResult.data?.productUpdate?.userErrors?.length > 0) {
-              console.error('Update errors:', updateResult.data.productUpdate.userErrors);
+              console.error(
+                "Update errors:",
+                updateResult.data.productUpdate.userErrors
+              );
             } else {
               updatedProducts.push({
                 id: product.id,
-                status: 'DRAFT'
+                status: "DRAFT",
               });
             }
+          } catch (error) {
+            console.error(`Error updating product ${product.id}:`, error);
           }
-        } catch (error) {
-          console.error(`Error updating product ${product.id}:`, error);
         }
+
+        totalProcessed++;
       }
 
       hasNextPage = responseData.data.products.pageInfo.hasNextPage;
       cursor = responseData.data.products.pageInfo.endCursor;
-
-      if (!hasNextPage) break;
     }
 
-    console.log("Product update completed.");
     return {
       success: true,
       message: "Prodotti aggiornati con successo!",
       updatedProductsCount: updatedProducts.length,
+      totalProcessed,
+      totalRatePointsUsed,
+      finalRateLimit: {
+        pointsUsed: totalRatePointsUsed,
+        pointsRemaining:
+          totalRatePointsUsed, // Use the accumulated total rate points used
+      },
+      totalProducts: totalProducts,
     };
   }
 
   if (action === "scheduleCron") {
     const every = formData.get("every") as string;
     const period = formData.get("period") as string;
-    
+
     let cronExpression = "";
     switch (period) {
       case "minutes":
@@ -169,10 +221,13 @@ export const action: ActionFunction = async ({ request }) => {
         cronExpression = `0 0 */${every} * *`;
         break;
       default:
-        return json({ 
-          success: false, 
-          error: "Periodo non valido" 
-        }, { status: 400 });
+        return json(
+          {
+            success: false,
+            error: "Periodo non valido",
+          },
+          { status: 400 }
+        );
     }
 
     const jobId = `${every}-${period}-${Date.now()}`;
@@ -182,41 +237,50 @@ export const action: ActionFunction = async ({ request }) => {
       try {
         console.log(`Executing cron job at ${new Date().toLocaleString()}`);
         const result = await updateProductsWithNoInventory();
-        console.log(`Cron job executed successfully at ${new Date().toLocaleString()}`);
+        console.log(
+          `Cron job executed successfully at ${new Date().toLocaleString()}`
+        );
         console.log(`Updated ${result.updatedProductsCount} products`);
       } catch (error) {
         console.error("Errore nell'esecuzione del cron job:", error);
       }
     });
 
-    // Store the job in the global activeJobs object
-    activeJobs[jobId] = scheduledJob;
+    // Store the job in the global activeJobs object with additional metadata
+    activeJobs[jobId] = {
+      task: scheduledJob,
+      createdAt: new Date(),
+      totalRatePointsUsed: 0,
+    };
 
-    return json({ 
-      success: true, 
+    return json({
+      success: true,
       message: `Job schedulato: ogni ${every} ${period}`,
       jobId: jobId,
-      updatedProductsCount: 0 // Default value
+      updatedProductsCount: 0, // Default value
     });
   }
 
   if (action === "stopJob") {
     const jobId = formData.get("jobId") as string;
-    
+
     if (activeJobs[jobId]) {
-      activeJobs[jobId].stop();
+      activeJobs[jobId].task.stop();
       delete activeJobs[jobId];
-      
-      return json({ 
-        success: true, 
-        message: `Job ${jobId} fermato con successo` 
+
+      return json({
+        success: true,
+        message: `Job ${jobId} fermato con successo`,
       });
     }
 
-    return json({ 
-      success: false, 
-      error: "Job non trovato" 
-    }, { status: 404 });
+    return json(
+      {
+        success: false,
+        error: "Job non trovato",
+      },
+      { status: 404 }
+    );
   }
 
   if (action === "runNow") {
@@ -224,10 +288,13 @@ export const action: ActionFunction = async ({ request }) => {
     return json(result);
   }
 
-  return json({ 
-    success: false, 
-    error: "Azione non riconosciuta" 
-  }, { status: 400 });
+  return json(
+    {
+      success: false,
+      error: "Azione non riconosciuta",
+    },
+    { status: 400 }
+  );
 };
 
 type ScheduledJob = {
@@ -235,16 +302,19 @@ type ScheduledJob = {
   every: string;
   period: string;
   time: string;
+  ratePointsUsed?: number;
 };
 
 type JobHistoryEntry = {
   id: string;
   action: string;
   timestamp: string;
-  status: 'success' | 'error';
+  status: "success" | "error";
   details?: string;
   updatedProductsCount?: number;
+  ratePointsUsed?: number;
 };
+
 
 export default function AppAzzera() {
   const actionData = useActionData<typeof action>();
@@ -255,47 +325,67 @@ export default function AppAzzera() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [jobHistory, setJobHistory] = useState<JobHistoryEntry[]>([]);
   const [isJobHistoryExpanded, setIsJobHistoryExpanded] = useState(false);
+  const [progress, setProgress] = useState<number>(0);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    const storedJobs = localStorage.getItem("scheduledJobs");
-    if (storedJobs) {
-      setScheduledJobs(JSON.parse(storedJobs));
-    }
-
-    const storedHistory = localStorage.getItem('jobHistory');
-    if (storedHistory) {
-      setJobHistory(JSON.parse(storedHistory));
-    }
-  }, []);
+  const [currentRateLimit, setCurrentRateLimit] = useState<{
+    used: number;
+    remaining: number | null;
+  } | null>(null);
 
   useEffect(() => {
     if (actionData?.success) {
-      setToastMessage(actionData.message);
-      
-      // Create a job history entry
+      const updatedProductsMessage = actionData.updatedProductsCount
+        ? ` - ${actionData.updatedProductsCount} products updated`
+        : "";
+  
+      setToastMessage(`${actionData.message}${updatedProductsMessage}`);
+  
+      if (actionData.totalProducts > 0) {
+        setProgress((actionData.totalProcessed / actionData.totalProducts) * 100);
+      }
+  
+      console.log("Job Execution Details:");
+      console.log(`Total Products Processed: ${actionData.totalProcessed}`);
+      console.log(`Updated Products: ${actionData.updatedProductsCount}`);
+      console.log("Rate Limit Information:");
+      console.log(`Total Points Used: ${actionData.totalRatePointsUsed}`);
+      console.log(
+        `Points Remaining: ${actionData.finalRateLimit?.pointsRemaining}`
+      );
+  
       const newHistoryEntry: JobHistoryEntry = {
         id: Date.now().toString(),
-        action: actionData.jobId ? 'Schedule Job' : 'Update Products',
+        action: actionData.jobId ? "Schedule Job" : "Update Products",
         timestamp: new Date().toLocaleString(),
-        status: 'success',
-        details: actionData.message,
-        updatedProductsCount: actionData.updatedProductsCount || 0
+        status: "success",
+        details: `Processed: ${actionData.totalProcessed}, Updated: ${
+          actionData.updatedProductsCount
+        }`,
+        updatedProductsCount: actionData.updatedProductsCount || 0,
+        ratePointsUsed: actionData.totalRatePointsUsed,
       };
-
-      // Update job history
-      const updatedHistory = [newHistoryEntry, ...jobHistory].slice(0, 10); // Keep last 10 entries
+  
+      if (actionData.finalRateLimit) {
+        setCurrentRateLimit({
+          used: actionData.finalRateLimit.pointsUsed,
+          remaining: actionData.finalRateLimit.pointsRemaining,
+        });
+      }
+  
+      const updatedHistory = [newHistoryEntry, ...jobHistory].slice(0, 10);
       setJobHistory(updatedHistory);
-      localStorage.setItem('jobHistory', JSON.stringify(updatedHistory));
-      
-      // If a new job was scheduled, update the jobs list
+      localStorage.setItem("jobHistory", JSON.stringify(updatedHistory));
+  
       if (actionData.jobId) {
         const newJob: ScheduledJob = {
           id: actionData.jobId,
           every: every,
           period: period,
           time: new Date().toLocaleString(),
+          ratePointsUsed: actionData.totalRatePointsUsed,
         };
-
+  
         const updatedJobs = [...scheduledJobs, newJob];
         setScheduledJobs(updatedJobs);
         localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
@@ -303,22 +393,28 @@ export default function AppAzzera() {
     }
   }, [actionData]);
 
-  const everyOptions = [
-    { label: "1", value: "1" },
-    { label: "5", value: "5" },
-    { label: "10", value: "10" },
-    { label: "15", value: "15" },
-    { label: "30", value: "30" },
-    { label: "60", value: "60" }
-  ];
+  const simulateProgress = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+    setProgress(0);
+    progressIntervalRef.current = setInterval(() => {
+      setProgress((prevProgress) => {
+        const newProgress = prevProgress + 10;
+        if (newProgress >= 100) {
+          clearInterval(progressIntervalRef.current!);
+          return 100;
+        }
+        return newProgress;
+      });
+    }, 1000);
+  };
 
-  const periodOptions = [
-    { label: "Minutes", value: "minutes" },
-    { label: "Hours", value: "hours" },
-    { label: "Days", value: "days" }
-  ];
 
   const handleUpdateProducts = () => {
+    setProgress(0);
+    simulateProgress();
+
     const formData = new FormData();
     formData.append("action", "runNow");
     submit(formData, { method: "post" });
@@ -346,8 +442,7 @@ export default function AppAzzera() {
     formData.append("action", "stopJob");
     submit(formData, { method: "post" });
 
-    // Remove the job from local state and storage
-    const updatedJobs = scheduledJobs.filter(job => job.id !== jobId);
+    const updatedJobs = scheduledJobs.filter((job) => job.id !== jobId);
     setScheduledJobs(updatedJobs);
     localStorage.setItem("scheduledJobs", JSON.stringify(updatedJobs));
   };
@@ -357,166 +452,266 @@ export default function AppAzzera() {
     setScheduledJobs([]);
   };
 
+  const everyOptions = [
+    { label: "1", value: "1" },
+    { label: "5", value: "5" },
+    { label: "10", value: "10" },
+    { label: "15", value: "15" },
+    { label: "30", value: "30" },
+    { label: "60", value: "60" },
+  ];
+
+  const periodOptions = [
+    { label: "Minutes", value: "minutes" },
+    { label: "Hours", value: "hours" },
+    { label: "Days", value: "days" },
+  ];
+
   const isJobLimitReached = scheduledJobs.length >= 3;
 
   return (
     <Frame>
-      <Page 
-        title="Product Management" 
+      <Page
+        title="Product Management"
         subtitle="Automate product status updates based on inventory"
       >
         <Layout>
-          <Layout.Section>
-            <Card>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '20px', 
-                padding: '20px' 
-              }}>
-                <div style={{ flex: 1 }}>
-                  <Select
-                    label="Frequency"
-                    helpText="How often should the job run?"
-                    options={everyOptions}
-                    value={every}
-                    onChange={(value) => setEvery(value)}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Select
-                    label="Period"
-                    helpText="Select the time unit for job scheduling"
-                    options={periodOptions}
-                    value={period}
-                    onChange={(value) => setPeriod(value)}
-                  />
-                </div>
-              </div>
-              
+          {/* Rate Limit Information Card */}
+          {/* {currentRateLimit !== null && (
+            <Layout.Section>
               <Card>
-                <ButtonGroup fullWidth>
-                  <Button 
-                    variant="primary" 
-                    onClick={handleUpdateProducts}
-                    icon={RefreshIcon}
-                  >
-                    Update Products Now
-                  </Button>
-                  <Button 
-                    onClick={handleScheduleCron} 
-                    disabled={isJobLimitReached}
-                    icon={ClockIcon}
-                  >
-                    Schedule Automated Job
-                  </Button>
-                  <Button 
-                    variant="primary"
-                    tone="critical"
-                    onClick={handleClearJobs}
-                    icon={DeleteIcon}
-                  >
-                    Clear All Jobs
-                  </Button>
-                </ButtonGroup>
+                <Text as="h2" variant="headingMd">
+                  API Rate Limit Usage
+                </Text>
+                <Text as="p" variant="bodyMd">
+                  Points Used: {currentRateLimit.used}
+                </Text>
+                <Text as="p" variant="bodyMd">
+                  Points Remaining: {currentRateLimit.remaining ?? "N/A"}
+                </Text>
               </Card>
-            </Card>
-          </Layout.Section>
+            </Layout.Section>
+          )} */}
 
+          {/* Progress Bar for Product Update */}
+          {/* <Layout.Section>
+            <Card>
+              <Text as="h2" variant="headingMd">
+                Update Progress
+              </Text>{" "}
+              <br />
+              <ProgressBar progress={progress} /> <br />
+              <Text as="p" variant="bodyMd" alignment="center">
+                {progress.toFixed(0)}%
+              </Text>
+            </Card>
+          </Layout.Section> */}
+
+<Layout.Section>
+  <Card roundedAbove="sm" >
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}
+    >
+      <div>
+        <Text as="p" variant="bodyMd" fontWeight="bold">
+          Immediately update product statuses based on inventory.
+        </Text>
+        {actionData?.updatedProductsCount > 0 && (
+          <div style={{ marginTop: '10px' }}>
+            <Badge tone="success">
+              {`${actionData.updatedProductsCount} Products Updated`}
+            </Badge>
+            <Text as="p" variant="bodySm">
+              Total products processed: {actionData.totalProcessed}
+            </Text>
+          </div>
+        )}
+      </div>
+      <Button
+        variant="primary"
+        onClick={handleUpdateProducts}
+        icon={<RefreshIcon style={{ width: 16, height: 16 }} />}
+        size="slim"
+      >
+        Update Products
+      </Button>
+    </div>
+    <div style={{ marginTop: "10px" }}> <br />
+      <ProgressBar progress={progress} />  <br />
+      <Text as="p" variant="bodyMd" alignment="center">
+        {progress > 0 ? `${progress.toFixed(0)}%` : "No job running"}
+      </Text> 
+    </div>
+    <div style={{ textAlign: "right", marginTop: "10px" }}>
+      <Button
+        onClick={() => setIsJobHistoryExpanded(!isJobHistoryExpanded)}
+        size="slim"
+      >
+        {isJobHistoryExpanded ? "Hide History" : "View History"}
+      </Button>
+    </div>
+    {isJobHistoryExpanded && (
+      <DataTable
+        columnContentTypes={["text", "text", "text", "text"]}
+        headings={["Action", "Timestamp", "Status", "Details"]}
+        rows={jobHistory.map((entry) => [
+          entry.action,
+          entry.timestamp,
+          <Badge tone={entry.status === "success" ? "success" : "critical"}>
+            {entry.status}
+          </Badge>,
+          entry.details || "-",
+        ])}
+      />
+    )}
+  </Card>
+  <br />
+  <Card >
+    <Text as="h2" variant="headingMd">Schedule Automated Updates</Text>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "10px" }}>
+      <div style={{ display: "flex", gap: "10px" }}>
+        <Select label="Every" options={everyOptions} onChange={setEvery} value={every} labelHidden  />
+        <Select label="Period" options={periodOptions} onChange={setPeriod} value={period} labelHidden  />
+      </div>
+      <Button onClick={handleScheduleCron} disabled={isJobLimitReached} icon={<ClockIcon style={{ width: 16, height: 16 }} />} size="slim">
+        Schedule Job
+      </Button>
+    </div>
+  </Card>
+  <br />
+  {scheduledJobs.length > 0 && (
+    <Layout.Section>
+      <Card >
+        <DataTable
+          columnContentTypes={["text", "text", "text", "text", "text"]}
+          headings={[
+            "Job ID",
+            "Frequency",
+            "Period",
+            "Created At",
+            "Actions",
+          ]}
+          rows={scheduledJobs.map((job) => [
+            job.id.slice(-6), // Show only last 6 characters
+            job.every,
+            job.period,
+            job.time,
+            (
+              <Button
+                size="slim"
+                tone="critical"
+                onClick={() => handleStopJob(job.id)}
+              >
+                Stop
+              </Button>
+            ),
+          ])}
+        />
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
+          <Button
+            variant="primary"
+            tone="critical"
+            onClick={handleClearJobs}
+            icon={<DeleteIcon style={{ width: 16, height: 16 }} />}
+            size="slim"
+          >
+            Clear Jobs
+          </Button>
+        </div>
+      </Card>
+    </Layout.Section>
+  )}
+</Layout.Section>
+
+          {/* Scheduled Jobs Table
           {scheduledJobs.length > 0 && (
             <Layout.Section>
               <Card>
-                <div style={{ textAlign: 'right', padding: '10px' }}>
-                  <Button
-                    variant="primary"
-                    tone="critical"
-                    onClick={handleClearJobs}
-                  >
-                    Clear All
-                  </Button>
-                </div>
                 <DataTable
-                  columnContentTypes={[
-                    'text',
-                    'text',
-                    'text',
-                    'text',
-                    'text',
-                  ]}
+                  columnContentTypes={["text", "text", "text", "text", "text"]}
                   headings={[
-                    'Job ID',
-                    'Frequency',
-                    'Period',
-                    'Created At',
-                    'Actions',
+                    "Job ID",
+                    "Frequency",
+                    "Period",
+                    "Created At",
+                    "Actions",
                   ]}
                   rows={scheduledJobs.map((job) => [
-                    job.id.slice(-6),  // Show only last 6 characters
+                    job.id.slice(-6), // Show only last 6 characters
                     job.every,
                     job.period,
                     job.time,
-                    <Button 
-                      size="slim" 
-                      tone="critical" 
-                      onClick={() => handleStopJob(job.id)}
-                    >
-                      Stop
-                    </Button>,
+                    (
+                      <Button
+                        size="slim"
+                        tone="critical"
+                        onClick={() => handleStopJob(job.id)}
+                      >
+                        Stop
+                      </Button>
+                    ),
                   ])}
                 />
               </Card>
             </Layout.Section>
-          )}
+          )} */}
 
-          {jobHistory.length > 0 && (
-            <Layout.Section>
-              <Card>
-                {jobHistory.length > 0 && (
-                  <div style={{ textAlign: 'right', padding: '10px' }}>
-                    <Button
-                      onClick={() => setIsJobHistoryExpanded(!isJobHistoryExpanded)}
-                    >
-                      {isJobHistoryExpanded ? 'Hide History' : 'View History'}
-                    </Button>
-                  </div>
-                )}
-                {isJobHistoryExpanded && (
-                  <DataTable
-                    columnContentTypes={[
-                      'text',
-                      'text',
-                      'text',
-                      'text',
-                    ]}
-                    headings={[
-                      'Action',
-                      'Timestamp',
-                      'Status',
-                      'Details',
-                    ]}
-                    rows={jobHistory.map((entry) => [
-                      entry.action,
-                      entry.timestamp,
-                      <Badge 
-                        tone={entry.status === 'success' ? 'success' : 'critical'}
-                      >
-                        {entry.status}
-                      </Badge>,
-                      entry.details || '-',
-                    ])}
-                  />
-                )}
-              </Card>
-            </Layout.Section>
-          )}
+{/* Job History Table with Progress Bar */}
+{/* Job History Table with Progress Bar */}
+{/* <Layout.Section>
+  <Card>
+    <div style={{ padding: "10px" }}>
+      <Text as="h2" variant="headingMd">
+        Job History & Progress
+      </Text>
+      <div style={{ minHeight: "20px", marginBottom: "10px" }}>
+        <ProgressBar progress={progress} />
+        <Text as="p" variant="bodyMd" alignment="center">
+          {progress > 0 ? `${progress.toFixed(0)}%` : "No job running"}
+        </Text>
+      </div>
+    </div>
+    {jobHistory.length > 0 && (
+      <>
+        <div style={{ textAlign: "right", padding: "10px" }}>
+          <Button
+            onClick={() => setIsJobHistoryExpanded(!isJobHistoryExpanded)}
+            size="slim"
+          >
+            {isJobHistoryExpanded ? "Hide History" : "View History"}
+          </Button>
+        </div>
+        {isJobHistoryExpanded && (
+          <DataTable
+            columnContentTypes={["text", "text", "text", "text"]}
+            headings={["Action", "Timestamp", "Status", "Details"]}
+            rows={jobHistory.map((entry) => [
+              entry.action,
+              entry.timestamp,
+              <Badge tone={entry.status === "success" ? "success" : "critical"}>
+                {entry.status}
+              </Badge>,
+              entry.details || "-",
+            ])}
+          />
+        )}
+      </>
+    )}
+  </Card>
+</Layout.Section> */}
 
+          {/* Job Limit Banner */}
           {isJobLimitReached && (
             <Layout.Section>
-              <Banner 
-                title="Job Limit Reached" 
-                tone="warning"
-              >
-                <p>You can only have up to 3 scheduled jobs at a time. Stop an existing job to schedule a new one.</p>
+              <Banner title="Job Limit Reached" tone="warning">
+                <p>
+                  You can only have up to 3 scheduled jobs at a time. Stop an
+                  existing job to schedule a new one.
+                </p>
               </Banner>
             </Layout.Section>
           )}

@@ -14,6 +14,31 @@ import type { ActionFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 
+// Utility function for delay
+async function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Retry mechanism with exponential backoff
+async function retryWithBackoff(fn: () => Promise<any>, maxRetries = 3) {
+  let retries = 0;
+  while (retries < maxRetries) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Throttled')) {
+        const waitTime = Math.pow(2, retries) * 1000; // Exponential backoff
+        console.log(`Throttled. Waiting ${waitTime}ms before retry.`);
+        await delay(waitTime);
+        retries++;
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
 export const action: ActionFunction = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
@@ -34,69 +59,72 @@ export const action: ActionFunction = async ({ request }) => {
   let hasNextPage = true;
   let cursor = null;
   const updatedProducts = [];
+  const batchSize = 50; // Reduce batch size to minimize throttling
+
+  type GraphQLResponse = {
+    data: {
+      products: {
+        pageInfo: {
+          endCursor: string;
+          hasNextPage: boolean;
+        };
+        edges: {
+          node: {
+            id: string;
+            variants: {
+              edges: {
+                node: {
+                  barcode: string;
+                };
+              }[];
+            };
+            tags: string[];
+            status: string;
+          };
+        }[];
+      };
+    };
+  };
 
   while (hasNextPage) {
     const searchString = cursor 
-      ? `first: 250, after: "${cursor}"` 
-      : `first: 250`;
+      ? `first: ${batchSize}, after: "${cursor}"` 
+      : `first: ${batchSize}`;
 
-    const response = await admin.graphql(`
-      query {
-        products(${searchString}) {
-          pageInfo {
-            endCursor
-            hasNextPage
-          }
-          edges {
-            node {
-              id
-              variants(first: 100) {
-                edges {
-                  node {
-                    barcode
+    const response = await retryWithBackoff(async () => {
+      return await admin.graphql(`
+        query {
+          products(${searchString}) {
+            pageInfo {
+              endCursor
+              hasNextPage
+            }
+            edges {
+              node {
+                id
+                variants(first: 100) {
+                  edges {
+                    node {
+                      barcode
+                    }
                   }
                 }
+                tags
+                status
               }
-              tags
-              status
             }
           }
         }
-      }
-    `);
+      `);
+    });
   
-    type GraphQLResponse = {
-      data: {
-        products: {
-          pageInfo: {
-            endCursor: string;
-            hasNextPage: boolean;
-          };
-          edges: {
-            node: {
-              id: string;
-              variants: {
-                edges: {
-                  node: {
-                    barcode: string;
-                  };
-                }[];
-              };
-              tags: string[];
-              status: string;
-            };
-          }[];
-        };
-      };
-    };
-
     const responseData = (await response.json()) as GraphQLResponse;
-    const products = responseData.data.products.edges.map((edge: any) => edge.node);
+    const products = responseData.data.products.edges.map((edge) => edge.node);
 
     for (const product of products) {
       try {
-        const variants = product.variants.edges.map((edge: any) => edge.node);
-        const matchingVariant = variants.find((variant: any) => 
+        const variants = product.variants.edges.map((edge) => edge.node);
+        const matchingVariant = variants.find((variant) => 
           eanList.includes(variant.barcode)
         );
 
@@ -105,28 +133,30 @@ export const action: ActionFunction = async ({ request }) => {
             ? product.tags
             : [...product.tags, tag];
 
-          const updateResponse = await admin.graphql(`
-            mutation productUpdate($input: ProductInput!) {
-              productUpdate(input: $input) {
-                product {
-                  id
-                  tags
-                  status
-                }
-                userErrors {
-                  field
-                  message
+          const updateResponse = await retryWithBackoff(async () => {
+            return await admin.graphql(`
+              mutation productUpdate($input: ProductInput!) {
+                productUpdate(input: $input) {
+                  product {
+                    id
+                    tags
+                    status
+                  }
+                  userErrors {
+                    field
+                    message
+                  }
                 }
               }
-            }
-          `, {
-            variables: {
-              input: {
-                id: product.id,
-                tags: updatedTags,
-                status: status.toUpperCase(),
+            `, {
+              variables: {
+                input: {
+                  id: product.id,
+                  tags: updatedTags,
+                  status: status.toUpperCase(),
+                },
               },
-            },
+            });
           });
 
           const updateResult = await updateResponse.json();
@@ -140,6 +170,9 @@ export const action: ActionFunction = async ({ request }) => {
               tags: updatedTags
             });
           }
+
+          // Add a small delay between updates
+          await delay(200);
         }
       } catch (error) {
         console.error(`Error updating product ${product.id}:`, error);
@@ -150,6 +183,9 @@ export const action: ActionFunction = async ({ request }) => {
     cursor = responseData.data.products.pageInfo.endCursor;
 
     if (!hasNextPage) break;
+
+    // Add a delay between pagination requests
+    await delay(500);
   }
 
   return json({
