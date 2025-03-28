@@ -263,17 +263,17 @@ export const action: ActionFunction = async ({ request }) => {
 
   if (action === "stopJob") {
     const jobId = formData.get("jobId") as string;
-
+  
     if (activeJobs[jobId]) {
       activeJobs[jobId].task.stop();
       delete activeJobs[jobId];
-
+  
       return json({
         success: true,
         message: `Job ${jobId} fermato con successo`,
       });
     }
-
+  
     return json(
       {
         success: false,
@@ -476,36 +476,7 @@ export default function AppAzzera() {
         subtitle="Automate product status updates based on inventory"
       >
         <Layout>
-          {/* Rate Limit Information Card */}
-          {/* {currentRateLimit !== null && (
-            <Layout.Section>
-              <Card>
-                <Text as="h2" variant="headingMd">
-                  API Rate Limit Usage
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  Points Used: {currentRateLimit.used}
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  Points Remaining: {currentRateLimit.remaining ?? "N/A"}
-                </Text>
-              </Card>
-            </Layout.Section>
-          )} */}
 
-          {/* Progress Bar for Product Update */}
-          {/* <Layout.Section>
-            <Card>
-              <Text as="h2" variant="headingMd">
-                Update Progress
-              </Text>{" "}
-              <br />
-              <ProgressBar progress={progress} /> <br />
-              <Text as="p" variant="bodyMd" alignment="center">
-                {progress.toFixed(0)}%
-              </Text>
-            </Card>
-          </Layout.Section> */}
 
 <Layout.Section>
   <Card roundedAbove="sm" >
@@ -627,84 +598,7 @@ export default function AppAzzera() {
   )}
 </Layout.Section>
 
-          {/* Scheduled Jobs Table
-          {scheduledJobs.length > 0 && (
-            <Layout.Section>
-              <Card>
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text", "text"]}
-                  headings={[
-                    "Job ID",
-                    "Frequency",
-                    "Period",
-                    "Created At",
-                    "Actions",
-                  ]}
-                  rows={scheduledJobs.map((job) => [
-                    job.id.slice(-6), // Show only last 6 characters
-                    job.every,
-                    job.period,
-                    job.time,
-                    (
-                      <Button
-                        size="slim"
-                        tone="critical"
-                        onClick={() => handleStopJob(job.id)}
-                      >
-                        Stop
-                      </Button>
-                    ),
-                  ])}
-                />
-              </Card>
-            </Layout.Section>
-          )} */}
 
-{/* Job History Table with Progress Bar */}
-{/* Job History Table with Progress Bar */}
-{/* <Layout.Section>
-  <Card>
-    <div style={{ padding: "10px" }}>
-      <Text as="h2" variant="headingMd">
-        Job History & Progress
-      </Text>
-      <div style={{ minHeight: "20px", marginBottom: "10px" }}>
-        <ProgressBar progress={progress} />
-        <Text as="p" variant="bodyMd" alignment="center">
-          {progress > 0 ? `${progress.toFixed(0)}%` : "No job running"}
-        </Text>
-      </div>
-    </div>
-    {jobHistory.length > 0 && (
-      <>
-        <div style={{ textAlign: "right", padding: "10px" }}>
-          <Button
-            onClick={() => setIsJobHistoryExpanded(!isJobHistoryExpanded)}
-            size="slim"
-          >
-            {isJobHistoryExpanded ? "Hide History" : "View History"}
-          </Button>
-        </div>
-        {isJobHistoryExpanded && (
-          <DataTable
-            columnContentTypes={["text", "text", "text", "text"]}
-            headings={["Action", "Timestamp", "Status", "Details"]}
-            rows={jobHistory.map((entry) => [
-              entry.action,
-              entry.timestamp,
-              <Badge tone={entry.status === "success" ? "success" : "critical"}>
-                {entry.status}
-              </Badge>,
-              entry.details || "-",
-            ])}
-          />
-        )}
-      </>
-    )}
-  </Card>
-</Layout.Section> */}
-
-          {/* Job Limit Banner */}
           {isJobLimitReached && (
             <Layout.Section>
               <Banner title="Job Limit Reached" tone="warning">

@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "32df322483d471ff2d8fdee10c08bdd8"
-application_url = "https://camping-disabilities-pmid-incoming.trycloudflare.com"
+application_url = "https://barn-keen-serbia-patents.trycloudflare.com"
 embedded = true
 name = "rikprova"
 handle = "rikprova"
@@ -27,9 +27,9 @@ scopes = "write_products,read_products,read_inventory,write_inventory"
 
 [auth]
 redirect_urls = [
-  "https://camping-disabilities-pmid-incoming.trycloudflare.com/auth/callback",
-  "https://camping-disabilities-pmid-incoming.trycloudflare.com/auth/shopify/callback",
-  "https://camping-disabilities-pmid-incoming.trycloudflare.com/api/auth/callback"
+  "https://barn-keen-serbia-patents.trycloudflare.com/auth/callback",
+  "https://barn-keen-serbia-patents.trycloudflare.com/auth/shopify/callback",
+  "https://barn-keen-serbia-patents.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
